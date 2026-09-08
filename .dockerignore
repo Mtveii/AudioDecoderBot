@@ -1,0 +1,14 @@
+.venv
+__pycache__
+*.pyc
+*.pyo
+bot.log
+.env
+.venv
+.git
+.gitignore
+план.мд
+tmp
+*.wav
+*.ogg
+*.mp4

@@ -1,0 +1,14 @@
+services:
+  bot:
+    build: .
+    image: ai-dehif_bot:latest
+    container_name: ai-dehif_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    # no ports needed, polling only
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

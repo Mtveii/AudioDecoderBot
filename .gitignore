@@ -1,0 +1,84 @@
+# ==============================
+# Environment / Secrets
+# ==============================
+.env
+*.env
+
+# ==============================
+# Python
+# ==============================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+
+# ==============================
+# Bot / AudioDecoderBot
+# ==============================
+tmp/
+temp/
+*.wav
+*.ogg
+*.oga
+*.mp3
+*.m4a
+*.flac
+*.aac
+*.wma
+*.opus
+*.mp4
+*.mov
+*.avi
+*.mkv
+bot.log
+*.log
+
+# Whisper models cache (если качаешь локально)
+models/
+*.bin
+*.pt
+
+# ==============================
+# OS
+# ==============================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ==============================
+# IDE / Editors
+# ==============================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.python-version
+
+# ==============================
+# Docker (не игнорировать Dockerfile/docker-compose)
+# ==============================
+.docker/

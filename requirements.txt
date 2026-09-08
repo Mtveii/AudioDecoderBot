@@ -1,0 +1,5 @@
+aiogram>=3.13.1
+openai>=1.51.2
+python-dotenv==1.0.1
+faster-whisper==1.1.1
+requests==2.34.2
