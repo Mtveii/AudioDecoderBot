@@ -66,7 +66,7 @@ async def convert_to_wav(input_path: str, output_path: str) -> None:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
-    stdout, stderr = await proc.communicate()
+    _, stderr = await proc.communicate()
     if proc.returncode != 0:
         # фолбэк без фильтров — если dynaudnorm/loudnorm не поддержался
         err0 = stderr.decode(errors="ignore")[-2000:]
@@ -84,18 +84,20 @@ async def convert_to_wav(input_path: str, output_path: str) -> None:
         raise RuntimeError("ffmpeg не создал выходной файл")
 
 
-async def transcribe_api(wav_path: str) -> str:
+async def transcribe_api(wav_path: str, lang_override: Optional[str] = None) -> str:
     """Транскрибация через OpenAI Whisper API — макс качество."""
     client = get_openai_client()
     if not client:
         raise RuntimeError("OPENAI_API_KEY не задан для api режима")
     wav_size = Path(wav_path).stat().st_size
     if wav_size > 24 * 1024 * 1024:
-        return await transcribe_api_chunked(wav_path, client)
+        return await transcribe_api_chunked(wav_path, client, lang_override)
+    # per-user lang приоритетнее глобального config
+    eff_lang = lang_override if lang_override is not None else config.WHISPER_LANGUAGE
     with open(wav_path, "rb") as f:
         kwargs = dict(model="whisper-1", file=f, response_format="text")
-        if config.WHISPER_LANGUAGE:
-            kwargs["language"] = config.WHISPER_LANGUAGE
+        if eff_lang:
+            kwargs["language"] = eff_lang
         if config.WHISPER_INITIAL_PROMPT:
             kwargs["prompt"] = config.WHISPER_INITIAL_PROMPT
         resp = await client.audio.transcriptions.create(**kwargs)
@@ -103,20 +105,21 @@ async def transcribe_api(wav_path: str) -> str:
         return resp.strip()
     return getattr(resp, "text", str(resp)).strip()
 
-async def transcribe_groq(wav_path: str) -> str:
+async def transcribe_groq(wav_path: str, lang_override: Optional[str] = None) -> str:
     """Транскрибация через Groq Whisper API — САМЫЙ БЫСТРЫЙ Бесплатный (0% CPU)."""
     client = get_groq_client()
     if not client:
         raise RuntimeError("GROQ_API_KEY не задан")
     wav_size = Path(wav_path).stat().st_size
     if wav_size > 24 * 1024 * 1024:
-        return await transcribe_groq_chunked(wav_path, client)
+        return await transcribe_groq_chunked(wav_path, client, lang_override)
+    eff_lang = lang_override if lang_override is not None else config.WHISPER_LANGUAGE
     with open(wav_path, "rb") as f:
         # Groq модели: whisper-large-v3-turbo (самый быстрый), whisper-large-v3
         kwargs = dict(model=config.GROQ_MODEL, file=f, response_format="json")
         # Groq не поддерживает language/prompt для всех моделей, пробуем с ними, fallback без
-        if config.WHISPER_LANGUAGE and config.GROQ_MODEL != "distil-whisper-large-v3-en":
-            kwargs["language"] = config.WHISPER_LANGUAGE
+        if eff_lang and config.GROQ_MODEL != "distil-whisper-large-v3-en":
+            kwargs["language"] = eff_lang
         try:
             resp = await client.audio.transcriptions.create(**kwargs)
         except Exception as e:
@@ -131,12 +134,13 @@ async def transcribe_groq(wav_path: str) -> str:
         return resp.strip()
     return getattr(resp, "text", str(resp)).strip()
 
-async def _transcribe_chunked(wav_path: str, client, model: str, response_format: str = "json") -> str:
+async def _transcribe_chunked(wav_path: str, client, model: str, response_format: str = "json", lang_override: Optional[str] = None) -> str:
     """Общий чанкинг для Groq/OpenAI: режет wav по 10 мин и склеивает."""
     tmpdir = tempfile.mkdtemp(prefix="whisper_chunks_")
     try:
         pattern = str(Path(tmpdir) / "chunk_%03d.wav")
-        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", wav_path, "-f", "segment", "-segment_time", "600", "-c", "copy", pattern]
+        # используем config.MAX_DURATION_SEC (600 = 10 мин) вместо хардкода
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", wav_path, "-f", "segment", "-segment_time", str(config.MAX_DURATION_SEC), "-c", "copy", pattern]
         proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         _, stderr = await proc.communicate()
         if proc.returncode != 0:
@@ -147,7 +151,18 @@ async def _transcribe_chunked(wav_path: str, client, model: str, response_format
         texts = []
         for ch in chunks:
             with open(ch, "rb") as f:
-                r = await client.audio.transcriptions.create(model=model, file=f, response_format=response_format)
+                kwargs = dict(model=model, file=f, response_format=response_format)
+                if lang_override:
+                    # chunked тоже пробуем с языком, fallback без если ошибка
+                    kwargs["language"] = lang_override
+                try:
+                    r = await client.audio.transcriptions.create(**kwargs)
+                except Exception as e:
+                    if "language" in str(e).lower() and "language" in kwargs:
+                        kwargs.pop("language", None)
+                        r = await client.audio.transcriptions.create(**kwargs)
+                    else:
+                        raise
                 t = r.strip() if isinstance(r, str) else getattr(r, "text", str(r)).strip()
                 if t:
                     texts.append(t)
@@ -155,21 +170,22 @@ async def _transcribe_chunked(wav_path: str, client, model: str, response_format
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
-async def transcribe_api_chunked(wav_path: str, client) -> str:
-    return await _transcribe_chunked(wav_path, client, "whisper-1", "text")
+async def transcribe_api_chunked(wav_path: str, client, lang_override: Optional[str] = None) -> str:
+    return await _transcribe_chunked(wav_path, client, "whisper-1", "text", lang_override)
 
-async def transcribe_groq_chunked(wav_path: str, client) -> str:
-    return await _transcribe_chunked(wav_path, client, config.GROQ_MODEL, "json")
+async def transcribe_groq_chunked(wav_path: str, client, lang_override: Optional[str] = None) -> str:
+    return await _transcribe_chunked(wav_path, client, config.GROQ_MODEL, "json", lang_override)
 
 
-def transcribe_local(wav_path: str) -> str:
+def transcribe_local(wav_path: str, lang_override: Optional[str] = None) -> str:
     """Транскрибация локально — МАКСИМАЛЬНОЕ КАЧЕСТВО."""
     model = get_local_model()
+    eff_lang = lang_override if lang_override is not None else config.WHISPER_LANGUAGE
     # макс качество: beam=5, best_of=5, temp 0, condition_on_previous_text, vad 500мс
     # threshold'ы из дефолта Whisper, без without_timestamps=False чтобы модель видела контекст
     segments, info = model.transcribe(
         wav_path,
-        language=config.WHISPER_LANGUAGE,  # None=авто, иначе ru — точнее если знаешь
+        language=eff_lang,  # None=авто, иначе ru — точнее если знаешь
         beam_size=config.WHISPER_BEAM_SIZE,  # 5
         best_of=5,
         temperature=0.0,
@@ -191,10 +207,11 @@ def transcribe_local(wav_path: str) -> str:
     return " ".join(texts).strip()
 
 
-async def transcribe_file(input_path: str) -> str:
+async def transcribe_file(input_path: str, lang_override: Optional[str] = None) -> str:
     """
     Главный оркестратор: конвертирует входной файл в wav и транскрибирует
     выбранным движком. Приоритет groq (самый быстрый бесплатный) > api > local.
+    lang_override: per-user язык (None=авто/глобальный config.WHISPER_LANGUAGE)
     """
     mode = config.get_effective_mode()
     tmpdir = tempfile.mkdtemp(prefix="stt_")
@@ -204,16 +221,16 @@ async def transcribe_file(input_path: str) -> str:
         
         if mode == "groq":
             try:
-                text = await transcribe_groq(wav_path)
+                text = await transcribe_groq(wav_path, lang_override)
             except Exception as e:
                 logger.warning(f"Groq failed {e}, fallback to local")
                 loop = asyncio.get_running_loop()
-                text = await loop.run_in_executor(None, transcribe_local, wav_path)
+                text = await loop.run_in_executor(None, transcribe_local, wav_path, lang_override)
         elif mode == "api":
-            text = await transcribe_api(wav_path)
+            text = await transcribe_api(wav_path, lang_override)
         else:
             loop = asyncio.get_running_loop()
-            text = await loop.run_in_executor(None, transcribe_local, wav_path)
+            text = await loop.run_in_executor(None, transcribe_local, wav_path, lang_override)
         
         return text.strip()
     finally:

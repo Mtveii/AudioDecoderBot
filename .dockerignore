@@ -12,3 +12,6 @@ tmp
 *.wav
 *.ogg
 *.mp4
+# не копировать персист — монтируется volume (прод персист)
+user_prefs.json
+user_prefs.json.tmp

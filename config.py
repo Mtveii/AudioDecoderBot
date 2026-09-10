@@ -18,6 +18,10 @@ WHISPER_VAD_MIN_SILENCE_MS = int(os.getenv("WHISPER_VAD_MIN_SILENCE_MS", "500"))
 # доп тюнинг качества
 WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "").strip() or None  # None=авто, ru/en/uk — форсить если знаешь язык
 WHISPER_INITIAL_PROMPT = os.getenv("WHISPER_INITIAL_PROMPT", "").strip() or None  # подсказка: "Привет, это разговор на русском с матом"
+# Groq Chat для интонации
+GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-20b").strip()  # openai/gpt-oss-20b | llama-3.1-8b-instant | qwen/qwen3-32b
+# персист per-user настроек
+USER_PREFS_PATH = os.getenv("USER_PREFS_PATH", "user_prefs.json").strip()
 # лимиты
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "20"))
 MAX_DURATION_SEC = int(os.getenv("MAX_DURATION_SEC", "600"))  # 10 мин на чанк, но принимаем до 60 мин

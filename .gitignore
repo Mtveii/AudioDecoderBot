@@ -58,6 +58,13 @@ models/
 *.bin
 *.pt
 
+# User prefs (per-user языки/тон) — не коммитить
+user_prefs.json
+user_prefs.json.tmp
+user_prefs.tmp
+*.tmp
+*.bak
+
 # ==============================
 # OS
 # ==============================
