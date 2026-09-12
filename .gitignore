@@ -1,5 +1,5 @@
 # ==============================
-# Environment / Secrets
+# Secrets & Env — никогда не коммитить
 # ==============================
 .env
 *.env
@@ -33,7 +33,7 @@ env/
 ENV/
 
 # ==============================
-# Bot / AudioDecoderBot
+# Bot — временные файлы
 # ==============================
 tmp/
 temp/
@@ -52,18 +52,33 @@ temp/
 *.mkv
 bot.log
 *.log
+*.tmp
+*.bak
 
-# Whisper models cache (если качаешь локально)
+# Whisper cache
 models/
 *.bin
 *.pt
 
-# User prefs (per-user языки/тон) — не коммитить
+# User prefs — персист, но не в git
 user_prefs.json
 user_prefs.json.tmp
 user_prefs.tmp
-*.tmp
-*.bak
+
+# ==============================
+# Admin & слежка — ПРИВАТНО, только у тебя (5149883442)
+# Все что как-либо связано с админом — не коммитится
+# ==============================
+stats.py
+usage.db
+usage.db-*
+*.db-wal
+*.db-shm
+*.db-journal
+history.csv
+history_*.csv
+media/
+media/**
 
 # ==============================
 # OS
@@ -74,7 +89,7 @@ ehthumbs.db
 Desktop.ini
 
 # ==============================
-# IDE / Editors
+# IDE
 # ==============================
 .idea/
 .vscode/
@@ -86,18 +101,6 @@ Desktop.ini
 .python-version
 
 # ==============================
-# Admin analytics — приватно, не коммитить (только для тебя 5149883442)
-# ==============================
-stats.py
-usage.db
-usage.db-*
-*.db-wal
-*.db-shm
-*.db-journal
-history.csv
-history_*.csv
-
-# ==============================
-# Docker (не игнорировать Dockerfile/docker-compose)
+# Docker
 # ==============================
 .docker/

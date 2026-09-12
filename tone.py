@@ -45,72 +45,23 @@ SYSTEM_PROMPT = (
 
 
 async def annotate_tone(text: str, model: Optional[str] = None) -> str:
-    """Добавляет метки интонации через Groq Chat. Фолбэк — исходный текст."""
+    """Добавляет метки интонации через Chat с фолбэком Groq->Cerebras->Mistral->OpenAI."""
     if not text or not text.strip():
         return text
-
-    # выбираем клиент: Groq приоритет, иначе OpenAI
-    client = stt.get_groq_client()
-    chat_model = model or config.GROQ_CHAT_MODEL
-    base_is_groq = True
-
-    if not client or not config.GROQ_API_KEY:
-        client = stt.get_openai_client()
-        base_is_groq = False
-        if not client:
-            logger.warning("tone: no chat client (no GROQ/OPENAI key), returning raw text")
-            return text
-        # для OpenAI используем gpt-4o-mini если groq модель не подходит
-        if chat_model.startswith("openai/") or "gpt-oss" in chat_model:
-            chat_model = "gpt-4o-mini"
-
-    # если текст слишком длинный — обрежем для LLM (4096 лимит телеграм всё равно)
     truncated = text.strip()
     if len(truncated) > 3000:
         truncated = truncated[:3000] + "..."
-
     try:
-        resp = await client.chat.completions.create(
-            model=chat_model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": truncated},
-            ],
-            temperature=0.25,
-            max_tokens=2048,
+        resp, used = await stt.chat_with_fallback(
+            messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": truncated}],
+            temperature=0.25, max_tokens=2048, model=model
         )
         annotated = resp.choices[0].message.content.strip() if resp.choices else ""
-        if not annotated:
+        if not annotated or "[" not in annotated or "]" not in annotated:
+            logger.warning(f"tone: no labels via {used}")
             return text
-        # базовая валидация: должен содержать хотя бы одну метку
-        if "[" not in annotated or "]" not in annotated:
-            logger.warning(f"tone: no labels in response, fallback to raw")
-            return text
-        logger.info(f"tone annotated {len(text)} -> {len(annotated)} chars via {chat_model}")
+        logger.info(f"tone {len(text)}->{len(annotated)} via {used}")
         return annotated
     except Exception as e:
-        err = str(e).lower()
-        # Groq rate limit / model not found — пробуем фолбэк модель
-        logger.warning(f"tone failed with {chat_model}: {e}")
-        if base_is_groq and "model" in err and chat_model != "llama-3.1-8b-instant":
-            try:
-                fallback = "llama-3.1-8b-instant" if "gpt-oss" in chat_model else "openai/gpt-oss-20b"
-                if fallback == chat_model:
-                    return text
-                resp = await client.chat.completions.create(
-                    model=fallback,
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": truncated},
-                    ],
-                    temperature=0.25,
-                    max_tokens=2048,
-                )
-                annotated = resp.choices[0].message.content.strip() if resp.choices else ""
-                if annotated and "[" in annotated:
-                    logger.info(f"tone fallback {fallback} ok")
-                    return annotated
-            except Exception as e2:
-                logger.warning(f"tone fallback failed {e2}")
-        # иначе возвращаем как есть, чтобы не ломать основной флоу
+        logger.warning(f"tone failed {e}")
         return text
