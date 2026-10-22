@@ -23,7 +23,7 @@ primary_region = 'fra'
   processes = ['app']
 
 [processes]
-  app = "python bot.py"
+  app = "python run.py"
 
 [[mounts]]
   source = "audio_decoder_data"

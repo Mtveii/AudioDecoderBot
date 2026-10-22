@@ -20,6 +20,6 @@ RUN chown -R bot:bot /app
 USER bot
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=15s \
-    CMD pgrep -f bot.py || exit 1
+    CMD pgrep -f "run.py|bot.py" || exit 1
 
-CMD ["python", "bot.py"]
+CMD ["python", "run.py"]

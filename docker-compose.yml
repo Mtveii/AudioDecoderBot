@@ -8,8 +8,10 @@ services:
       - .env
     # no ports needed, polling only
     volumes:
-      # персист per-user настроек — переживает пересборку (прод готовность)
+      # персист per-user настроек, админ-аналитики и самих аудио — переживает пересборку, чистишь сам
       - ./user_prefs.json:/app/user_prefs.json
+      - ./usage.db:/app/usage.db
+      - ./media:/app/media
     deploy:
       resources:
         limits:
@@ -19,7 +21,7 @@ services:
           cpus: '0.5'
           memory: 512M
     healthcheck:
-      test: ["CMD", "python", "-c", "import pathlib; exit(0 if pathlib.Path('bot.py').exists() else 1)"]
+      test: ["CMD-SHELL", "pgrep -f 'run.py|bot.py' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

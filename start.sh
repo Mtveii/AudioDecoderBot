@@ -9,9 +9,9 @@ if [ ! -d .venv ]; then
   exit 1
 fi
 # убить старый если висит
-pkill -f "python.*bot.py" 2>/dev/null || true
+pkill -f "python.*(run|bot)\.py" 2>/dev/null || true
 sleep 1
-setsid .venv/bin/python bot.py > bot.log 2>&1 < /dev/null &
+setsid .venv/bin/python run.py > bot.log 2>&1 < /dev/null &
 echo "✅ Бот запущен PID $! | лог: bot.log"
 echo "Проверь: tail -f bot.log"
-echo "Остановить: ./stop.sh или pkill -f bot.py"
+echo "Остановить: ./stop.sh или pkill -f 'python.*run.py'"

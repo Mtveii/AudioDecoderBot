@@ -1081,11 +1081,15 @@ async def main():
     finally:
         await bot.session.close()
 
-# Регистрация админ-панели (приватный модуль, в git не входит)
+# Регистрация админ-панели (приватный модуль, в git не входит).
+# ВАЖНО: запускать через run.py (import bot), иначе from bot import * в
+# admin_panel создаст второй экземпляр dp и хэндлеры не сработают.
 try:
     import admin_panel  # noqa: E402
+    _adm = [h.callback.__name__ for h in dp.message.handlers]
+    logger.info(f"admin_panel: {len(_adm)} message handlers")
 except ImportError:
-    logging.getLogger(__name__).info("admin_panel не найден — админка отключена")
+    logger.info("admin_panel не найден — админка отключена")
 
 if __name__ == "__main__":
     asyncio.run(main())
