@@ -22,10 +22,7 @@ SYSTEM_PROMPT = (
 async def summarize(text: str, lang: Optional[str] = None, model: Optional[str] = None) -> str:
     if not text or not text.strip():
         return text
-    raw = text.strip()
-    for p in ("📝 Текст:\n", "🎭 Текст с интонацией:\n", "✅ Проверено:\n", "📌 Кратко:\n"):
-        if raw.startswith(p):
-            raw = raw[len(p):].lstrip()
+    raw = stt.strip_header(text)
     if len(raw) < 300:
         return ""
     if len(raw) > 3500:

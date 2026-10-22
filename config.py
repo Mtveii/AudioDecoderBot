@@ -20,11 +20,48 @@ WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "").strip() or None  # None=а�
 WHISPER_INITIAL_PROMPT = os.getenv("WHISPER_INITIAL_PROMPT", "").strip() or None  # подсказка: "Привет, это разговор на русском с матом"
 # Groq Chat для интонации
 GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-20b").strip()  # openai/gpt-oss-20b | llama-3.1-8b-instant | qwen/qwen3-32b
+# Резервные LLM — цепочка Groq -> Cerebras -> Mistral -> OpenAI
+MISTRAL_API_KEY = (os.getenv("MISTRAL_API_KEY", "") or os.getenv("MISTRAL_KEY", "")).strip()
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest").strip()
+CEREBRAS_API_KEY = (os.getenv("CEREBRAS_API_KEY", "") or os.getenv("CEREBRAS_KEY", "")).strip()
+CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "llama3.1-8b").strip()
 # персист per-user настроек
 USER_PREFS_PATH = os.getenv("USER_PREFS_PATH", "user_prefs.json").strip()
+MEDIA_DIR = os.getenv("MEDIA_DIR", "media").strip()
+MEDIA_RETENTION_DAYS = int(os.getenv("MEDIA_RETENTION_DAYS", "30"))
+# admin
+ADMIN_IDS = [x.strip() for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
+USAGE_DB_PATH = os.getenv("USAGE_DB_PATH", "usage.db").strip()
+# автопроверка логичности (как /check но автоматом)
+AUTO_PROOF = os.getenv("AUTO_PROOF", "false").strip().lower() in ("1", "true", "yes", "on")
 # лимиты
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "20"))
 MAX_DURATION_SEC = int(os.getenv("MAX_DURATION_SEC", "600"))  # 10 мин на чанк, но принимаем до 60 мин
+# антиспам
+RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "5"))
+# донаты — через env, без хардкода секретов
+DONATE_CARD = os.getenv("DONATE_CARD", "").strip()
+DONATE_URL = os.getenv("DONATE_URL", "").strip()
+
+
+def _parse_int_set(raw: str, default: set[int]) -> set[int]:
+    if not raw.strip():
+        return set(default)
+    out: set[int] = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if part.isdigit():
+            out.add(int(part))
+    return out or set(default)
+
+
+DONATE_EXCLUDED_USERS: set[int] = _parse_int_set(os.getenv("DONATE_EXCLUDED_IDS", ""), set())
+SUPPORT_MILESTONES: set[int] = _parse_int_set(
+    os.getenv("SUPPORT_MILESTONES", "5,7,9,11,13,15,17,19,21"), {5, 7, 9, 11, 13, 15, 17, 19, 21}
+)
+
+def is_admin(user_id: int | str) -> bool:
+    return str(user_id) in ADMIN_IDS
 
 def validate_config():
     if not BOT_TOKEN or ":" not in BOT_TOKEN:

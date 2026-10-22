@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 # ленивая инициализация клиентов
 _openai_client = None
 _groq_client = None
+_mistral_client = None
+_cerebras_client = None
 _local_model = None
 
 def get_openai_client():
@@ -30,6 +32,95 @@ def get_groq_client():
             base_url="https://api.groq.com/openai/v1",
         )
     return _groq_client
+
+def get_mistral_client():
+    global _mistral_client
+    if _mistral_client is None and config.MISTRAL_API_KEY:
+        from openai import AsyncOpenAI
+        _mistral_client = AsyncOpenAI(
+            api_key=config.MISTRAL_API_KEY,
+            base_url="https://api.mistral.ai/v1",
+        )
+    return _mistral_client
+
+def get_cerebras_client():
+    global _cerebras_client
+    if _cerebras_client is None and config.CEREBRAS_API_KEY:
+        from openai import AsyncOpenAI
+        _cerebras_client = AsyncOpenAI(
+            api_key=config.CEREBRAS_API_KEY,
+            base_url="https://api.cerebras.ai/v1",
+        )
+    return _cerebras_client
+
+# Единый helper для срезания заголовков результата ("📝 Текст:\n" и т.д.)
+HEADER_PREFIXES = (
+    "📝 Текст:\n",
+    "🎭 Текст с интонацией:\n",
+    "✅ Проверено:\n",
+    "📌 Кратко:\n",
+)
+
+
+def strip_header(text: str) -> str:
+    """Убирает один ведущий заголовок результата, возвращает чистый текст."""
+    t = (text or "").strip()
+    for p in HEADER_PREFIXES:
+        if t.startswith(p):
+            return t[len(p):].lstrip()
+    return t
+
+async def chat_with_fallback(messages, temperature: float, max_tokens: int, model: str | None = None):
+    """Пробует Groq -> Cerebras -> Mistral -> OpenAI по цепочке. Логика: 429/5xx/сеть/таймаут — ретрай на следующем, иначе сразу успех."""
+    errs = []
+    # 1. Groq
+    groq = get_groq_client()
+    if groq:
+        m = model or config.GROQ_CHAT_MODEL
+        try:
+            r = await groq.chat.completions.create(model=m, messages=messages, temperature=temperature, max_tokens=max_tokens)
+            return r, f"groq:{m}"
+        except Exception as e:
+            errs.append(f"groq:{e}")
+            if not _is_retryable_chat_error(e):
+                # если это не ретрайбл (напр. 400) — не фолбэчим, возвращаем как есть
+                # но для совместимости попробуем следующий если это 429/5xx
+                pass
+            logger.warning(f"groq chat failed {e}, try cerebras")
+    # 2. Cerebras
+    cere = get_cerebras_client()
+    if cere:
+        m = config.CEREBRAS_MODEL
+        try:
+            r = await cere.chat.completions.create(model=m, messages=messages, temperature=temperature, max_tokens=max_tokens)
+            return r, f"cerebras:{m}"
+        except Exception as e:
+            errs.append(f"cerebras:{e}")
+            logger.warning(f"cerebras chat failed {e}, try mistral")
+    # 3. Mistral
+    mist = get_mistral_client()
+    if mist:
+        m = config.MISTRAL_MODEL
+        try:
+            r = await mist.chat.completions.create(model=m, messages=messages, temperature=temperature, max_tokens=max_tokens)
+            return r, f"mistral:{m}"
+        except Exception as e:
+            errs.append(f"mistral:{e}")
+            logger.warning(f"mistral chat failed {e}, try openai")
+    # 4. OpenAI
+    oai = get_openai_client()
+    if oai:
+        m = "gpt-4o-mini"
+        # если у groq модель не подходит для openai — форсим
+        if model and model.startswith("openai/"):
+            m = "gpt-4o-mini"
+        try:
+            r = await oai.chat.completions.create(model=m, messages=messages, temperature=temperature, max_tokens=max_tokens)
+            return r, f"openai:{m}"
+        except Exception as e:
+            errs.append(f"openai:{e}")
+            raise Exception(f"all chats failed: {'; '.join(errs)}") from e
+    raise Exception(f"no chat client / all failed: {'; '.join(errs) if errs else 'no keys'}")
 
 def get_local_model():
     global _local_model
@@ -104,6 +195,42 @@ async def transcribe_api(wav_path: str, lang_override: Optional[str] = None) -> 
     if isinstance(resp, str):
         return resp.strip()
     return getattr(resp, "text", str(resp)).strip()
+
+async def transcribe_groq_verbose(wav_path: str, lang_override: Optional[str] = None) -> str:
+    """Verbose с таймкодами для длинных — 00:00 — текст"""
+    client = get_groq_client()
+    if not client:
+        raise RuntimeError("GROQ_API_KEY не задан")
+    eff_lang = lang_override if lang_override is not None else config.WHISPER_LANGUAGE
+    with open(wav_path, "rb") as f:
+        kwargs = dict(model=config.GROQ_MODEL, file=f, response_format="verbose_json", timestamp_granularities=["segment"])
+        if eff_lang and config.GROQ_MODEL != "distil-whisper-large-v3-en":
+            kwargs["language"] = eff_lang
+        try:
+            resp = await client.audio.transcriptions.create(**kwargs)
+        except Exception as e:
+            if "language" in str(e).lower():
+                kwargs.pop("language", None)
+                resp = await client.audio.transcriptions.create(**kwargs)
+            else:
+                raise
+    # resp.segments [{start,end,text}]
+    segs = getattr(resp, "segments", None) or getattr(resp, "text", "")
+    if isinstance(segs, str):
+        return segs.strip()
+    if not segs:
+        return getattr(resp, "text", "").strip() if hasattr(resp, "text") else str(resp).strip()
+    out_lines = []
+    for s in segs:
+        start = getattr(s, "start", 0) if not isinstance(s, dict) else s.get("start",0)
+        txt = getattr(s, "text", "") if not isinstance(s, dict) else s.get("text","")
+        txt = txt.strip()
+        if not txt:
+            continue
+        mm = int(start)//60
+        ss = int(start)%60
+        out_lines.append(f"{mm:02d}:{ss:02d} — {txt}")
+    return "\n".join(out_lines).strip() if out_lines else getattr(resp, "text", "").strip()
 
 async def transcribe_groq(wav_path: str, lang_override: Optional[str] = None) -> str:
     """Транскрибация через Groq Whisper API — САМЫЙ БЫСТРЫЙ Бесплатный (0% CPU)."""

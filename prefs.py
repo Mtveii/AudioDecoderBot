@@ -44,7 +44,7 @@ _lock = threading.Lock()
 _prefs_path = Path(config.USER_PREFS_PATH)
 
 # Reserved commands that should NOT be treated as lang codes
-RESERVED_CODES = {"ton", "check", "auto", "start", "help", "lang"}
+RESERVED_CODES = {"ton", "check", "auto", "start", "help", "lang", "about"}
 
 
 def _load() -> None:

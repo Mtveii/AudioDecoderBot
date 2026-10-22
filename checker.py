@@ -36,10 +36,7 @@ async def proofread(text: str, lang: Optional[str] = None, model: Optional[str] 
     """Проверяет логичность, сохраняет маты, с фолбэком Groq->Cerebras->Mistral->OpenAI."""
     if not text or not text.strip():
         return text
-    raw = text.strip()
-    for prefix in ("📝 Текст:\n", "🎭 Текст с интонацией:\n", "✅ Проверено:\n"):
-        if raw.startswith(prefix):
-            raw = raw[len(prefix):].lstrip()
+    raw = stt.strip_header(text)
     if len(raw) < 3:
         return text
     lang_hint = ""
