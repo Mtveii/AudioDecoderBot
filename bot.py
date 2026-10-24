@@ -1,12 +1,16 @@
 import asyncio
+import datetime
 import logging
 import os
 import re
 import shutil
+import time
 import tempfile
 from pathlib import Path
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from typing import Optional
+
+BOT_START_TIME = datetime.datetime.now()
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
@@ -82,6 +86,12 @@ LANG_RE = re.compile(r"^/([a-z]{2,3})(?:@\w+)?\s*$")
 
 _MAX_CHAT_CACHE = 500
 _MAX_MEDIA_TEXT_CACHE = 1000
+
+# Метрики скорости ответа (в памяти процесса)
+_response_times = deque(maxlen=50)   # секунды обработки последних запросов
+_request_errors = 0
+_last_request_at = None
+_active_requests = 0
 
 
 class LRUDict(OrderedDict):
@@ -329,8 +339,7 @@ async def _cleanup_media(days: int = config.MEDIA_RETENTION_DAYS) -> int:
     return removed
 
 
-@dp.message(Command("cleanup"))
-async def cmd_cleanup(message: Message):
+async def cmd_cleanup(message: Message):  # только для админки, без публичной команды
     if not config.is_admin(message.from_user.id if message.from_user else 0):
         return
     parts = (message.text or "").split()
@@ -726,22 +735,12 @@ async def handle_document(message: Message):
         last_media_by_chat.pop(oldest, None)
     await process_transcription(message)
 
-@dp.message(F.text & ~F.via_bot)
-async def fallback_text(message: Message):
-    # не спамим в группах на каждое сообщение
-    if message.chat.type != "private":
-        return
-    # если текст команды уже обработан - сюда не попадем из-за порядка, но на всякий
-    if message.text and message.text.startswith("/"):
-        # не отвечать на /ru-подобные которые уже обработаны
-        if _extract_lang_code(message.text):
-            return
-        await message.answer("Неизвестная команда. Попробуй /help, /ru, /ton, /check")
-        return
-    await message.answer("Пришли голосовое, кружок или видео — я превращу его в текст 🎤")
-
 async def process_transcription(message: Message, lang_override: Optional[str] = None, force_tone: bool = False, reply_to_message: Optional[Message] = None):
     """Скачивает файл, транскрибирует, отвечает. lang_override=None -> берёт из prefs/auto."""
+    global _last_request_at, _active_requests
+    _active_requests += 1
+    _t0 = time.time()
+    _last_request_at = datetime.datetime.now()
 
     # определяем file_id и имя
     file_id = None
@@ -756,6 +755,7 @@ async def process_transcription(message: Message, lang_override: Optional[str] =
         if message.voice.file_size and message.voice.file_size > config.MAX_FILE_SIZE_MB * 1024 * 1024:
             target = reply_to_message or message
             await target.reply(f"❌ Файл слишком большой ({message.voice.file_size/1024/1024:.1f}MB). Лимит {config.MAX_FILE_SIZE_MB}MB")
+            globals()["_active_requests"] = max(0, globals().get("_active_requests", 0) - 1)
             return
     elif message.video_note:
         file_id = message.video_note.file_id
@@ -780,6 +780,7 @@ async def process_transcription(message: Message, lang_override: Optional[str] =
         if message.document.file_size and message.document.file_size > config.MAX_FILE_SIZE_MB * 1024 * 1024:
             target = reply_to_message or message
             await target.reply(f"❌ Файл слишком большой ({message.document.file_size/1024/1024:.1f}MB). Лимит {config.MAX_FILE_SIZE_MB}MB")
+            globals()["_active_requests"] = max(0, globals().get("_active_requests", 0) - 1)
             return
     else:
         target = reply_to_message or message
@@ -960,6 +961,11 @@ async def process_transcription(message: Message, lang_override: Optional[str] =
 
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+        try:
+            _response_times.append(time.time() - _t0)
+        except Exception:
+            pass
+        globals()["_active_requests"] = max(0, globals().get("_active_requests", 0) - 1)
 
 
 async def _health_server():
@@ -1011,7 +1017,7 @@ async def main():
         logger.info(f"Starting bot | mode={mode} | ffmpeg={shutil.which('ffmpeg') or 'NOT FOUND'}")
     if not shutil.which("ffmpeg"):
         logger.error("ffmpeg не найден! Установи: sudo apt install ffmpeg")
-        print("❌ ffmpeg не найден — поставь: sudo apt install ffmpeg")
+        print("ffmpeg not found - install ffmpeg")
         return
     
     # предзагрузка модели в фоне чтобы первый ГС не ждал (безопасно, кэшируется)
@@ -1041,15 +1047,10 @@ async def main():
     ]
     # тебе — нужное выше, языки внизу (без дубля summary)
     admin_cmds = [
+        BotCommand(command="status", description="🖥 Мониторинг сервера"),
         BotCommand(command="summary", description="Краткий пересказ"),
         BotCommand(command="check", description="Перепроверить логичность (маты сохраню)"),
         BotCommand(command="ton", description="Перерасшифровать с интонацией"),
-        BotCommand(command="admin", description="👑 Админка (только ты)"),
-        BotCommand(command="block", description="⛔ Заблокировать юзера"),
-        BotCommand(command="unblock", description="✅ Разблокировать юзера"),
-        BotCommand(command="blocked", description="Список заблокированных"),
-        BotCommand(command="clearmedia", description="🧹 Очистить папку media"),
-        BotCommand(command="delmedia", description="🗑 Удалить файл из media"),
         BotCommand(command="about", description="О проекте, GitHub, донаты"),
         BotCommand(command="help", description="Справка"),
         BotCommand(command="auto", description="Сбросить язык в авто"),
@@ -1090,6 +1091,21 @@ try:
     logger.info(f"admin_panel: {len(_adm)} message handlers")
 except ImportError:
     logger.info("admin_panel не найден — админка отключена")
+
+# catch-all на текст — РЕГИСТРИРУЕТСЯ ПОСЛЕДНИМ, иначе он съедает /admin и пр.
+@dp.message(F.text & ~F.via_bot)
+async def fallback_text(message: Message):
+    # не спамим в группах на каждое сообщение
+    if message.chat.type != "private":
+        return
+    # если текст команды уже обработан - сюда не попадем из-за порядка, но на всякий
+    if message.text and message.text.startswith("/"):
+        # не отвечать на /ru-подобные которые уже обработаны
+        if _extract_lang_code(message.text):
+            return
+        await message.answer("Неизвестная команда. Попробуй /help, /ru, /ton, /check")
+        return
+    await message.answer("Пришли голосовое, кружок или видео — я превращу его в текст 🎤")
 
 if __name__ == "__main__":
     asyncio.run(main())
