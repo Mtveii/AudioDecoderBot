@@ -32,6 +32,14 @@ MEDIA_RETENTION_DAYS = int(os.getenv("MEDIA_RETENTION_DAYS", "30"))
 # admin
 ADMIN_IDS = [x.strip() for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
 USAGE_DB_PATH = os.getenv("USAGE_DB_PATH", "usage.db").strip()
+# На Fly env-переменная может прийти искажённой (MSYS/Windows path conversion) —
+# в таком случае используем стандартный путь volume.
+if ("Program Files" in USAGE_DB_PATH or "Git" in USAGE_DB_PATH
+        or "C:" in USAGE_DB_PATH or not os.path.isabs(USAGE_DB_PATH)):
+    if os.path.exists("/app/data"):
+        USAGE_DB_PATH = "/app/data/usage.db"
+    elif not os.path.isabs(USAGE_DB_PATH):
+        USAGE_DB_PATH = os.path.abspath(USAGE_DB_PATH)
 # автопроверка логичности (как /check но автоматом)
 AUTO_PROOF = os.getenv("AUTO_PROOF", "false").strip().lower() in ("1", "true", "yes", "on")
 # лимиты
