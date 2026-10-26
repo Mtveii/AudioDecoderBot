@@ -88,7 +88,7 @@ _MAX_CHAT_CACHE = 500
 _MAX_MEDIA_TEXT_CACHE = 1000
 
 # Метрики скорости ответа (в памяти процесса)
-_response_times = deque(maxlen=50)   # секунды обработки последних запросов
+_response_times: deque[float] = deque(maxlen=50)   # секунды обработки последних запросов
 _request_errors = 0
 _last_request_at = None
 _active_requests = 0
@@ -790,10 +790,7 @@ async def process_transcription(message: Message, lang_override: Optional[str] =
     # per-user настройки — lang_override имеет приоритет (для /ru реплея последнего)
     lang_uid = reply_to_message.from_user.id if reply_to_message and reply_to_message.from_user else (message.from_user.id if message.from_user else None)
     # если передан явный lang_override (из /ru перерасшифровки) — используем его, иначе из prefs
-    if lang_override is not None:
-        eff_lang = lang_override  # может быть None для /auto
-    else:
-        eff_lang = prefs.get_user_lang(lang_uid) if lang_uid else None
+    eff_lang = lang_override if lang_override is not None else (prefs.get_user_lang(lang_uid) if lang_uid else None)
     tone_enabled = force_tone  # только на 1 сообщение, авто-тон убран
 
     # лог
