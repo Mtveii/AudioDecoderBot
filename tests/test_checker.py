@@ -1,5 +1,14 @@
+import os
+import os
 import asyncio
+import pytest
+
 import checker, tone, summary
+
+pytestmark = pytest.mark.skipif(
+    not any(os.getenv(k) for k in ("GROQ_API_KEY", "CEREBRAS_API_KEY", "MISTRAL_API_KEY", "OPENAI_API_KEY")),
+    reason="requires at least one LLM API key",
+)
 
 def test_mats_preserved():
     # маты должны остаться, как дила -> как дела

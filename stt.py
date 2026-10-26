@@ -70,6 +70,24 @@ def strip_header(text: str) -> str:
             return t[len(p):].lstrip()
     return t
 
+def _is_retryable_chat_error(e: Exception) -> bool:
+    """Определяет, стоит ли фолбэчить на следующий провайдер при ошибке чата."""
+    status = getattr(e, "status_code", None)
+    if status is None:
+        status = getattr(e, "code", None)
+    try:
+        status = int(status) if status is not None else None
+    except (TypeError, ValueError):
+        status = None
+    if status in (429, 500, 502, 503, 504):
+        return True
+    name = type(e).__name__.lower()
+    if any(k in name for k in ("timeout", "connection", "network", "ratelimit")):
+        return True
+    # По умолчанию пробуем следующий провайдер — лучше дать шанс, чем упасть.
+    return True
+
+
 async def chat_with_fallback(messages, temperature: float, max_tokens: int, model: str | None = None):
     """Пробует Groq -> Cerebras -> Mistral -> OpenAI по цепочке. Логика: 429/5xx/сеть/таймаут — ретрай на следующем, иначе сразу успех."""
     errs = []
