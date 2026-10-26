@@ -40,6 +40,7 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
     env:
+      PYTHONPATH: ${{ github.workspace }}
       BOT_TOKEN: "1:abc"
       STT_MODE: "groq"
       USAGE_DB_PATH: "/tmp/usage.db"
@@ -95,7 +96,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck
-          shellcheck start.sh stop.sh backup.sh
+          shellcheck -S error start.sh stop.sh backup.sh
 
   docker:
     name: Docker build

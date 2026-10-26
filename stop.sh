@@ -1,3 +1,3 @@
 #!/bin/bash
 pkill -f "python.*(run|bot)\.py" && echo "🛑 Бот остановлен" || echo "Бот не был запущен"
-ps aux | grep -v grep | grep bot || true
+pgrep -af "python.*(run|bot)\.py" || true

@@ -1,5 +1,5 @@
 #!/bin/bash
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 if [ ! -f .env ]; then
   echo "❌ .env не найден. Скопируй из .env.example и вставь BOT_TOKEN"
   exit 1
