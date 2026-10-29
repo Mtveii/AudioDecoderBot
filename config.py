@@ -47,7 +47,9 @@ MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "20"))
 MAX_DURATION_SEC = int(os.getenv("MAX_DURATION_SEC", "600"))  # 10 мин на чанк, но принимаем до 60 мин
 # антиспам
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "5"))
-# донаты — через env, без хардкода секретов
+# Бот-сосед для перекрёстной навигации (кнопка «перейти» в /start /about)
+SIBLING_BOT_USERNAME = os.getenv("SIBLING_BOT_USERNAME", "SayItBetterBot").strip().lstrip("@")
+SIBLING_BOT_LABEL = os.getenv("SIBLING_BOT_LABEL", "TextFixerBot — исправление текста").strip()
 DONATE_CARD = os.getenv("DONATE_CARD", "").strip()
 DONATE_URL = os.getenv("DONATE_URL", "").strip()
 

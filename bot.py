@@ -365,11 +365,22 @@ async def donate_show_card(cb: CallbackQuery):
     card = CARD_NUMBER or "не указана (см. Monobank)"
     await cb.answer(f"Номер карты: {card}\nНажми и держи для копирования", show_alert=True)
 
+def _sibling_kb() -> Optional[InlineKeyboardMarkup]:
+    if not config.SIBLING_BOT_USERNAME:
+        return None
+    url = f"https://t.me/{config.SIBLING_BOT_USERNAME}"
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f"🔗 {config.SIBLING_BOT_LABEL or config.SIBLING_BOT_USERNAME}", url=url)]])
+
+
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     if await _check_rate_limit(message):
         return
-    await message.answer(START_TEXT)
+    kb = _sibling_kb()
+    if kb:
+        await message.answer(START_TEXT, reply_markup=kb)
+    else:
+        await message.answer(START_TEXT)
 
 @dp.message(Command("help"))
 async def cmd_help(message: Message):
@@ -378,14 +389,66 @@ async def cmd_help(message: Message):
     uid = message.from_user.id if message.from_user else None
     await message.answer(get_help_text(uid), parse_mode="Markdown")
 
-@dp.message(Command("about"))
+async def _get_all_user_ids() -> list[int]:
+    ids: list[int] = []
+    try:
+        if stats is not None:
+            # stats may expose helper; fallback to direct DB
+            pass
+    except Exception:
+        pass
+    import sqlite3
+    try:
+        conn = sqlite3.connect(config.USAGE_DB_PATH)
+        cur = conn.execute("SELECT user_id FROM users")
+        for (uid,) in cur.fetchall():
+            try:
+                ids.append(int(uid))
+            except (TypeError, ValueError):
+                pass
+        conn.close()
+    except Exception as e:
+        logger.warning(f"broadcast user list failed: {e}")
+    return ids
+
+
+@dp.message(Command("broadcast"))
+async def cmd_broadcast(message: Message):
+    uid = message.from_user.id if message.from_user else 0
+    if not config.is_admin(uid):
+        return
+    text = ""
+    if message.reply_to_message:
+        text = (message.reply_to_message.text or message.reply_to_message.caption or "").strip()
+    else:
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) > 1:
+            text = parts[1].strip()
+    if not text:
+        await message.answer("Использование: /broadcast текст (или ответом на сообщение)")
+        return
+    ids = await asyncio.to_thread(_get_all_user_ids)
+    sent = 0
+    failed = 0
+    for target in ids:
+        try:
+            await bot.send_message(target, text)
+            sent += 1
+        except Exception:
+            failed += 1
+        await asyncio.sleep(0.05)
+    await message.answer(f"📣 Отправлено: {sent}, ошибок: {failed} (всего {len(ids)}).")
 async def cmd_about(message: Message):
     if await _check_rate_limit(message):
         return
     about_rows = [InlineKeyboardButton(text="📦 GitHub", url="https://github.com/Mtveii/AudioDecoderBot")]
     if MONOBANK_URL:
         about_rows.append(InlineKeyboardButton(text="☕ Поддержать (Monobank)", url=MONOBANK_URL))
-    kb = InlineKeyboardMarkup(inline_keyboard=[about_rows])
+    kb_rows = [about_rows]
+    sk = _sibling_kb()
+    if sk:
+        kb_rows.append(sk.inline_keyboard[0])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await message.answer(
         "🤖 <b>AudioDecoderBot</b> — превращает голосовые, кружки и видео в текст.\n\n"
         "🔧 <b>Технологии:</b>\n"
@@ -1048,6 +1111,7 @@ async def main():
         BotCommand(command="summary", description="Краткий пересказ"),
         BotCommand(command="check", description="Перепроверить логичность (маты сохраню)"),
         BotCommand(command="ton", description="Перерасшифровать с интонацией"),
+        BotCommand(command="broadcast", description="📣 Рассылка всем (админ)"),
         BotCommand(command="about", description="О проекте, GitHub, донаты"),
         BotCommand(command="help", description="Справка"),
         BotCommand(command="auto", description="Сбросить язык в авто"),
