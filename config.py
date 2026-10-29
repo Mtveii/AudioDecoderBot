@@ -48,7 +48,7 @@ MAX_DURATION_SEC = int(os.getenv("MAX_DURATION_SEC", "600"))  # 10 мин на �
 # антиспам
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "5"))
 # Бот-сосед для перекрёстной навигации (кнопка «перейти» в /start /about)
-SIBLING_BOT_USERNAME = os.getenv("SIBLING_BOT_USERNAME", "SayItBetterBot").strip().lstrip("@")
+SIBLING_BOT_USERNAME = os.getenv("SIBLING_BOT_USERNAME", "TextFixerBot").strip().lstrip("@")
 SIBLING_BOT_LABEL = os.getenv("SIBLING_BOT_LABEL", "TextFixerBot — исправление текста").strip()
 DONATE_CARD = os.getenv("DONATE_CARD", "").strip()
 DONATE_URL = os.getenv("DONATE_URL", "").strip()
